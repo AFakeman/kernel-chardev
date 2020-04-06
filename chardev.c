@@ -4,6 +4,7 @@
 #include <linux/fs.h>
 #include <linux/module.h>
 #include <linux/uaccess.h>
+#include <linux/slab.h>
 
 
 /*  
@@ -30,6 +31,7 @@ static ssize_t device_write(struct file *, const char *, size_t, loff_t *);
 
 static int Major;		/* Major number assigned to our device driver */
 static int is_open;             /* A flag that specifies if the device is open somewhere */
+static size_t operation_count;
 
 static struct cdev mycdev;
 static struct class *myclass = NULL;
@@ -40,6 +42,18 @@ static struct file_operations fops = {
 	write: device_write,
 	open: device_open,
 	release: device_release
+};
+
+/*
+ * We use private data in a file to store the data on how much of
+ * string to be output was read. I think seq_file has something about this,
+ * but the rest of the behavior is not very proc-like.
+ * Not actually necessary because in out case only one instance can be open,
+ * but in some cases may help in the future.
+ */
+struct private_data {
+	char read_string[32];
+	size_t offset;
 };
 
 /*
@@ -108,6 +122,9 @@ static int device_open(struct inode *inode, struct file *file)
 	if (is_open) {
 		return -EBUSY;
 	}
+
+	file->private_data = kzalloc(sizeof(struct private_data), GFP_KERNEL);
+
 	is_open = 1;
 	return 0;
 }
@@ -122,6 +139,7 @@ static int device_release(struct inode *inode, struct file *file)
 		return -EIO;
 	}
 	is_open = 0;
+	kfree(file->private_data);
 	return 0;
 }
 
@@ -131,11 +149,26 @@ static int device_release(struct inode *inode, struct file *file)
  */
 static ssize_t device_read(struct file *filp,	/* see include/linux/fs.h   */
 			   char *buffer,	/* buffer to fill with data */
-			   size_t length,	/* length of the buffer     */
+			   size_t buffer_length,/* length of the buffer     */
 			   loff_t * offset)
 {
-	printk(KERN_ALERT "Read not implemented yet.\n");
-	return -EINVAL;
+	struct private_data *data = filp->private_data;
+	char *copy_root = data->read_string + data->offset;
+	size_t str_length, copy_length;
+	if (data->offset == 0) {
+		scnprintf(data->read_string, sizeof(data->read_string), "%lu\n", operation_count);
+	}
+	str_length = strlen(copy_root);
+	if (str_length == data->offset) {
+		return 0;
+	}
+	copy_length = str_length > buffer_length ? buffer_length : str_length;
+	if (copy_to_user(buffer, copy_root, copy_length) != 0) {
+		printk(KERN_ALERT "Could not copy data to userspace.\n");
+		return -EIO;
+	}
+	data->offset += copy_length;
+	return copy_length;
 }
 
 /*  
@@ -145,6 +178,7 @@ static ssize_t
 device_write(struct file *filp, const char *input_buff, size_t input_len, loff_t * off)
 {
 	char buf[WRITE_BUF_SIZE];
+	operation_count += 1;
 	if (input_len > 255) {
 		printk(KERN_ALERT "Write with input_len too big.\n");
 		return -EINVAL;
