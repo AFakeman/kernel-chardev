@@ -29,11 +29,13 @@ static ssize_t device_write(struct file *, const char *, size_t, loff_t *);
  */
 
 static int Major;		/* Major number assigned to our device driver */
+static int is_open;             /* A flag that specifies if the device is open somewhere */
 
 static struct cdev mycdev;
 static struct class *myclass = NULL;
 
 static struct file_operations fops = {
+	owner: THIS_MODULE,
 	read: device_read,
 	write: device_write,
 	open: device_open,
@@ -46,6 +48,8 @@ static struct file_operations fops = {
 static int myinit(void)
 {
     int device_created = 0;
+
+    is_open = 0;
 
     /* cat /proc/devices */
     if (alloc_chrdev_region(&Major, 0, 1, DEVICE_NAME "_proc") < 0)
@@ -101,6 +105,10 @@ static void myexit(void)
  */
 static int device_open(struct inode *inode, struct file *file)
 {
+	if (is_open) {
+		return -EBUSY;
+	}
+	is_open = 1;
 	return 0;
 }
 
@@ -109,6 +117,11 @@ static int device_open(struct inode *inode, struct file *file)
  */
 static int device_release(struct inode *inode, struct file *file)
 {
+	if (!is_open) {
+		printk(KERN_ALERT "Releasing a closed device.\n");
+		return -EIO;
+	}
+	is_open = 0;
 	return 0;
 }
 
