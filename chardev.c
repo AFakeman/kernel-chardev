@@ -37,7 +37,7 @@ static struct cdev mycdev;
 static struct class *myclass = NULL;
 
 static struct file_operations fops = {
-	owner: THIS_MODULE,
+	owner: THIS_MODULE, // https://stackoverflow.com/questions/51085225/prevent-removal-of-busy-kernel-module
 	read: device_read,
 	write: device_write,
 	open: device_open,
@@ -160,7 +160,7 @@ static ssize_t device_read(struct file *filp,	/* see include/linux/fs.h   */
 	}
 	str_length = strlen(copy_root);
 	if (str_length == data->offset) {
-		return 0;
+		return 0;  // Returning 0 seems to be the proper way to signal EOF.
 	}
 	copy_length = str_length > buffer_length ? buffer_length : str_length;
 	if (copy_to_user(buffer, copy_root, copy_length) != 0) {
