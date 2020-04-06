@@ -1,4 +1,4 @@
-obj-m := main.o
+obj-m := chardev.o
 KVER := $(shell uname -r)
 KPATH := /lib/modules/$(KVER)/build
 
